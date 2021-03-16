@@ -16,21 +16,11 @@ object MainForm: TMainForm
     299)
   PixelsPerInch = 96
   TextHeight = 16
-  object Button1: TButton
-    Left = 8
-    Top = 266
-    Width = 75
-    Height = 25
-    Anchors = [akRight, akBottom]
-    Caption = 'Button1'
-    TabOrder = 0
-    OnClick = Button1Click
-  end
   object Memo: TMemo
     Left = 8
     Top = 8
     Width = 619
-    Height = 252
+    Height = 283
     Anchors = [akLeft, akTop, akRight, akBottom]
     Font.Charset = RUSSIAN_CHARSET
     Font.Color = clWindowText
@@ -38,6 +28,6 @@ object MainForm: TMainForm
     Font.Name = 'Courier New'
     Font.Style = []
     ParentFont = False
-    TabOrder = 1
+    TabOrder = 0
   end
 end

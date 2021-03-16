@@ -3,38 +3,41 @@ unit ThreadManager;
 interface
 
 uses
-  System.Generics.Collections, System.Classes, LoggerInterface, System.SyncObjs;
+  System.Generics.Collections, System.Classes, LoggerInterface,
+  System.SyncObjs, SettingsInterface;
 
 type
   TThreadManager = class(TObject)
   private
     FCancellationEvent: TEvent;
-    FLoggerI: ILogger;
     FMyThreadList: TList<TThread>;
-    function CreateNewThread(APeriod: Integer): TThread;
+    function CreateNewThread(ALoggerI: ILogger; AInterval: Cardinal): TThread;
   public
-    constructor Create(ALoggerI: ILogger; APeriodArr: TArray<Integer>);
+    constructor Create(const ALoggerI: ILogger; const ASettingsI:
+        IMessageThreadSettings);
     destructor Destroy; override;
   end;
 
 implementation
 
 uses
-  LoggerThread;
+  LoggerThread, System.SysUtils;
 
-constructor TThreadManager.Create(ALoggerI: ILogger; APeriodArr:
-    TArray<Integer>);
+constructor TThreadManager.Create(const ALoggerI: ILogger; const ASettingsI:
+    IMessageThreadSettings);
 var
-  APeriod: Integer;
+  AInterval: Cardinal;
 begin
-  FLoggerI := ALoggerI;
+  if not Assigned(ALoggerI) then
+    raise Exception.Create('Logger interface is not assigned');
+
 
   FCancellationEvent := TEvent.Create();
   FCancellationEvent.ResetEvent;
 
   FMyThreadList := TList<TThread>.Create;
-  for APeriod in APeriodArr do
-    FMyThreadList.Add( CreateNewThread(APeriod) );
+  for AInterval in ASettingsI.Intervals do
+    FMyThreadList.Add( CreateNewThread(ALoggerI, AInterval) );
 
 end;
 
@@ -42,7 +45,7 @@ destructor TThreadManager.Destroy;
 var
   AThread: TThread;
 begin
-  // устанавливаем событие, которо ждут все потоки
+  // устанавливаем событие завершения, которого ждут все потоки
   FCancellationEvent.SetEvent;
   for AThread in FMyThreadList  do
   begin
@@ -53,9 +56,10 @@ begin
   inherited;
 end;
 
-function TThreadManager.CreateNewThread(APeriod: Integer): TThread;
+function TThreadManager.CreateNewThread(ALoggerI: ILogger; AInterval:
+    Cardinal): TThread;
 begin
-  Result := TLoggerThread.Create(FLoggerI, FCancellationEvent, APeriod)
+  Result := TLoggerThread.Create(ALoggerI, FCancellationEvent, AInterval)
 end;
 
 end.

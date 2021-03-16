@@ -3,24 +3,32 @@ unit Logger;
 interface
 
 uses
-  LoggerInterface, System.SyncObjs, System.Classes;
+  LoggerInterface, System.SyncObjs, System.Classes, SettingsInterface,
+  System.Generics.Collections;
 
 type
-  TLogger = class(TInterfacedObject, ILogger)
+  TLogger = class(TComponent, ILogger)
   strict private
     procedure Add(AMessage: string; AMessageStatus: TMessageStatus);
+    function GetAddMessageEvent: TEvent;
+    procedure SetAddMessageEvent(const Value: TEvent);
     procedure TruncateLog;
     procedure WaitLogTruncateTime;
   private
-    FTruncatePeriod: Cardinal;
     FCancellationEvent: TEvent;
     FCS: TCriticalSection;
-    FEvent: TEvent;
+    FAddMessageEvent: TEvent;
+    FDataLifeTime: Cardinal;
     FFileName: string;
+    FMessageStatus: TDictionary<TMessageStatus, String>;
     FStringList: TStrings;
-    function MessageStatusToStr(AMessageStatus: TMessageStatus): String;
+    FTruncateFileInterval: Cardinal;
+    FTruncateThread: TThread;
+    procedure CreateTruncateLogThread;
+    procedure TerminateTruncateLogThread;
   public
-    constructor Create(const AFileName: string; AEvent: TEvent);
+    constructor Create(AOwner: TComponent;
+      const ALoggerSettingsI: ILoggerSettings); reintroduce;
     destructor Destroy; override;
     function GetLastMessages: TArray<String>;
   end;
@@ -30,44 +38,45 @@ implementation
 uses
   System.IOUtils, System.SysUtils, Winapi.Windows, System.DateUtils;
 
-constructor TLogger.Create(const AFileName: string; AEvent: TEvent);
+constructor TLogger.Create(AOwner: TComponent;
+  const ALoggerSettingsI: ILoggerSettings);
 begin
-  if AFileName.IsEmpty then
-    raise Exception.Create('Empty filename');
+  if not Assigned(ALoggerSettingsI) then
+    raise Exception.Create('Logger settings interface is not assigned');
 
-  FEvent := AEvent;
+  inherited Create(AOwner);
+
+  FMessageStatus := TDictionary<TMessageStatus, String>.Create;
+  FMessageStatus.Add(msCritical, 'Critical');
+  FMessageStatus.Add(msWarning, 'Warning');
+  FMessageStatus.Add(msInfo, 'Info');
 
   FCS := TCriticalSection.Create;
   FStringList := TStringList.Create;
 
-  FFileName := AFileName;
+  // Запоминаем свои настройки
+  FFileName := ALoggerSettingsI.FileName;
+  FDataLifeTime := ALoggerSettingsI.DataLifeTime;
+  FTruncateFileInterval := ALoggerSettingsI.TruncateFileInterval;
 
-  TFile.WriteAllText(AFileName, '');
+  TFile.WriteAllText(ALoggerSettingsI.FileName, '');
 
-  FCancellationEvent := TEvent.Create();
-  FCancellationEvent.ResetEvent;
-
-  FTruncatePeriod := 5000;
-  TThread.CreateAnonymousThread(
-    procedure
-    begin
-      WaitLogTruncateTime;
-    end).Start;
+  // Запускаем поток, который будет обрезать файл
+  CreateTruncateLogThread;
 end;
 
 destructor TLogger.Destroy;
 begin
-  if FCancellationEvent <> nil then
-  begin
-    FCancellationEvent.SetEvent;
-    FreeAndNil(FCancellationEvent);
-  end;
+  TerminateTruncateLogThread;
 
   if FCS <> nil then
     FreeAndNil(FCS);
 
   if FStringList <> nil then
     FreeAndNil(FStringList);
+
+  if FMessageStatus <> nil then
+    FreeAndNil(FMessageStatus);
 
   inherited;
 end;
@@ -78,24 +87,47 @@ var
   AText: string;
   ATreadID: Cardinal;
 begin
+  if not FMessageStatus.TryGetValue(AMessageStatus, AStatus) then
+    raise Exception.Create('Undefined message status');
+
+  ATreadID := GetCurrentThreadId;
+  AText := Format('%s %s %s %s%s', [AMessage.PadRight(30), AStatus.PadRight(9),
+    ATreadID.ToString.PadRight(10), DateTimeToStr(Now), sLineBreak]);
+
   FCS.Enter;
   try
-    ATreadID := GetCurrentThreadId;
-    AStatus := MessageStatusToStr(AMessageStatus);
-    AText := Format('%s %s %s %s%s', [AMessage.PadRight(30),
-      AStatus.PadRight(9), ATreadID.ToString.PadRight(10), DateTimeToStr(Now),
-      sLineBreak]);
-
     TFile.AppendAllText(FFileName, AText);
 
     FStringList.Append(AText);
     if FStringList.Count > 10 then
       FStringList.Delete(0);
 
-    FEvent.SetEvent;
+    if FAddMessageEvent <> nil then
+      FAddMessageEvent.SetEvent;
   finally
     FCS.Leave;
   end;
+end;
+
+procedure TLogger.CreateTruncateLogThread;
+begin
+  // Событие, которого будет ждать поток
+  FCancellationEvent := TEvent.Create();
+  FCancellationEvent.ResetEvent;
+
+  FTruncateThread := TThread.CreateAnonymousThread(
+    procedure
+    begin
+      WaitLogTruncateTime;
+    end);
+
+  FTruncateThread.FreeOnTerminate := False;
+  FTruncateThread.Start;
+end;
+
+function TLogger.GetAddMessageEvent: TEvent;
+begin
+  Result := FAddMessageEvent;
 end;
 
 function TLogger.GetLastMessages: TArray<String>;
@@ -114,9 +146,10 @@ var
 begin
   while True do
   begin
-    AWaitResult := FCancellationEvent.WaitFor(FTruncatePeriod);
+    // Ждём события завершения
+    AWaitResult := FCancellationEvent.WaitFor(FTruncateFileInterval);
 
-    // Если не дождались
+    // Если события завершения не дождались
     if AWaitResult = wrTimeout then
     begin
       TruncateLog;
@@ -126,19 +159,20 @@ begin
   end;
 end;
 
-function TLogger.MessageStatusToStr(AMessageStatus: TMessageStatus): String;
+procedure TLogger.SetAddMessageEvent(const Value: TEvent);
 begin
-  Result := '';
-  case AMessageStatus of
-    msCritical:
-      Result := 'Critical';
-    msWarning:
-      Result := 'Warning';
-    msInfo:
-      Result := 'Info';
+  FAddMessageEvent := Value;
+end;
+
+procedure TLogger.TerminateTruncateLogThread;
+begin
+  if FCancellationEvent <> nil then
+  begin
+    FCancellationEvent.SetEvent;
+    FTruncateThread.WaitFor; // Ждём завершения потока
+    FreeAndNil(FTruncateThread);
+    FreeAndNil(FCancellationEvent);
   end;
-  if Result = '' then
-    raise Exception.Create('Undefined message status');
 end;
 
 procedure TLogger.TruncateLog;
@@ -154,7 +188,7 @@ var
 begin
   try
     ANewFileContents := '';
-    AMinDateTime := IncMinute(Now, -1);
+    AMinDateTime := IncMinute(Now, -1 * FDataLifeTime);
     ANowStr := DateTimeToStr(AMinDateTime);
 
     FCS.Enter;
@@ -192,7 +226,7 @@ begin
       FCS.Release;
     end;
   except
-    ;
+    ; // Не получилось обновить файл. Может быть получится в следующий раз.
   end;
 end;
 

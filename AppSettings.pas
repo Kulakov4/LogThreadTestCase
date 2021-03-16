@@ -8,8 +8,6 @@ uses
 type
   TAppSettings = class(TObject)
   private
-  class var
-    FSettings: ISettings;
     class function GetSettings: ISettings; static;
   public
     class property Settings: ISettings read GetSettings;
@@ -18,7 +16,10 @@ type
 implementation
 
 uses
-  Settings, System.IOUtils;
+  Settings, System.IOUtils, System.SysUtils;
+
+var
+  FSettings: TSettings = nil;
 
 class function TAppSettings.GetSettings: ISettings;
 var
@@ -26,11 +27,18 @@ var
 begin
   if FSettings = nil then
   begin
-    ASettingsFileName := TPath.ChangeExtension(ParamStr(0), '.xml');
-    FSettings := TSettings.Create(ASettingsFileName);
+    ASettingsFileName := TPath.Combine(TPath.GetDirectoryName(ParamStr(0)),
+      'appsettings.json');
+    FSettings := TSettings.Create(nil, ASettingsFileName);
   end;
 
   Result := FSettings;
 end;
+
+initialization
+
+finalization
+  if FSettings <> nil then
+    FreeAndNil(FSettings);
 
 end.

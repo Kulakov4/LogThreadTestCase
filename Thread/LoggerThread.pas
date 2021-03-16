@@ -11,23 +11,23 @@ type
     FCancellationEvent: TEvent;
     FID: Integer;
     FLoggerI: ILogger;
-    FPeriod: Integer;
+    FInterval: Cardinal;
   class var
     FCount: Integer;
   protected
     procedure Execute; override;
   public
-    constructor Create(ALoggerI: ILogger; ACancellationEvent: TEvent; APeriod:
-        Integer);
+    constructor Create(ALoggerI: ILogger; ACancellationEvent: TEvent; AInterval:
+        Cardinal);
   end;
 
 implementation
 
 uses
-  System.SysUtils, StrHelper;
+  System.SysUtils;
 
 constructor TLoggerThread.Create(ALoggerI: ILogger; ACancellationEvent: TEvent;
-    APeriod: Integer);
+    AInterval: Cardinal);
 begin
   inherited Create;
   Inc(FCount);
@@ -35,11 +35,8 @@ begin
   if not Assigned(ALoggerI) then
     raise Exception.Create('Logger interface is not assigned');
 
-  if APeriod < 0 then
-    raise Exception.Create('Period is negative');
-
   FLoggerI := ALoggerI;
-  FPeriod := APeriod;
+  FInterval := AInterval;
   FCancellationEvent := ACancellationEvent;
   FreeOnTerminate := False;
 end;
@@ -60,13 +57,13 @@ begin
     Inc(AMessageCount);
     AMessage := Format('Message %d in thread %d', [AMessageCount, FID]);
     AMessageStatusVar := High(TMessageStatus);
-    i := Random(Integer(AMessageStatusVar));
+    i := Random(Integer(AMessageStatusVar) + 1);
     AMessageStatus := TMessageStatus(i);
 
     FLoggerI.Add(AMessage, AMessageStatus);
 
     // ∆дЄм событи€ об отмене потока
-    AWaitResult := FCancellationEvent.WaitFor(FPeriod);
+    AWaitResult := FCancellationEvent.WaitFor(FInterval);
     if AWaitResult <> wrTimeout then
     begin
       Terminate;

@@ -6,11 +6,12 @@ uses
   LoggerInterface in 'Interfaces\LoggerInterface.pas',
   Logger in 'Services\Logger.pas',
   LoggerThread in 'Thread\LoggerThread.pas',
-  StrHelper in 'Helpers\StrHelper.pas',
   ThreadManager in 'Thread\ThreadManager.pas',
-  Settings in 'Settings.pas',
   SettingsInterface in 'Interfaces\SettingsInterface.pas',
-  AppSettings in 'AppSettings.pas';
+  AppSettings in 'AppSettings.pas',
+  Settings in 'Services\Settings.pas',
+  AppLogger in 'AppLogger.pas',
+  Validator in 'Helpers\Validator.pas';
 
 {$R *.res}
 

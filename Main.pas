@@ -10,17 +10,18 @@ uses
 
 type
   TMainForm = class(TForm)
-    Button1: TButton;
     Memo: TMemo;
-    procedure Button1Click(Sender: TObject);
   strict private
     procedure UpdateLogMessages(AMessages: TArray<String>);
     procedure WaitLogUpdates;
   private
-    FEvent: TEvent;
+    FAddMessageEvent: TEvent;
     FCancellationEvent: TEvent;
     FLoggerI: ILogger;
     FThreadManager: TThreadManager;
+    FWaitLogUpdatesThread: TThread;
+    procedure CreateWaitLogUpdatesThread;
+    procedure TerminateWaitLogUpdatesThread;
     { Private declarations }
   public
     constructor Create(AOwner: TComponent); override;
@@ -34,41 +35,70 @@ var
 implementation
 
 uses
-  Logger, AppSettings;
+  AppSettings, AppLogger;
 
 {$R *.dfm}
 
 constructor TMainForm.Create(AOwner: TComponent);
 begin
   inherited;
+  try
+    // Автосбрасываемое событие
+    FAddMessageEvent := TEvent.Create(nil, False, False, '');
 
-  // Автосбрасываемое событие
-  FEvent := TEvent.Create(nil, False, False, '');
+    FLoggerI := TAppLoger.Logger;
+    // Логгер будет устанавливать это событие после добавления сообщения
+    FLoggerI.AddMessageEvent := FAddMessageEvent;
 
-  FLoggerI := TLogger.Create(TAppSettings.Settings.LoggerFileName, FEvent);
+    CreateWaitLogUpdatesThread;
 
-  FCancellationEvent := TEvent.Create;
-
-  TThread.CreateAnonymousThread(
-    procedure
+    FThreadManager := TThreadManager.Create(FLoggerI,
+      TAppSettings.Settings.MessageThread);
+  except
+    on E: Exception do
     begin
-      WaitLogUpdates;
-    end).Start;
+      ShowMessage(E.Message);
+      Application.ShowMainForm := False;
+      Application.Terminate;
+    end;
+  end;
 end;
 
 destructor TMainForm.Destroy;
 begin
-  FCancellationEvent.SetEvent;
+  TerminateWaitLogUpdatesThread;
+
   if FThreadManager <> nil then
     FreeAndNil(FThreadManager);
+
+  FLoggerI := nil;
 
   inherited;
 end;
 
-procedure TMainForm.Button1Click(Sender: TObject);
+procedure TMainForm.CreateWaitLogUpdatesThread;
 begin
-  FThreadManager := TThreadManager.Create(FLoggerI,
-    TAppSettings.Settings.ThreadPeriods);
+  // Событие, которого будет ждать поток
+  FCancellationEvent := TEvent.Create;
+
+  FWaitLogUpdatesThread := TThread.CreateAnonymousThread(
+    procedure
+    begin
+      WaitLogUpdates;
+    end);
+  FWaitLogUpdatesThread.FreeOnTerminate := False;
+  FWaitLogUpdatesThread.Start;
+end;
+
+procedure TMainForm.TerminateWaitLogUpdatesThread;
+begin
+  if FCancellationEvent <> nil then
+  begin
+    FCancellationEvent.SetEvent;
+    FWaitLogUpdatesThread.WaitFor;
+    FreeAndNil(FWaitLogUpdatesThread);
+    FreeAndNil(FCancellationEvent);
+  end;
 end;
 
 procedure TMainForm.UpdateLogMessages(AMessages: TArray<String>);
@@ -95,13 +125,13 @@ var
 begin
   while True do
   begin
-    AWaitResult := TEvent.WaitForMultiple([FCancellationEvent, FEvent], 1000,
-      False, ASignaledObject);
+    AWaitResult := TEvent.WaitForMultiple
+      ([FCancellationEvent, FAddMessageEvent], 1000, False, ASignaledObject);
 
     // Если дождались
     if AWaitResult <> wrTimeout then
     begin
-      if ASignaledObject = FEvent then
+      if ASignaledObject = FAddMessageEvent then
       begin
         ALastMessages := FLoggerI.GetLastMessages;
         TThread.Synchronize(TThread.CurrentThread,

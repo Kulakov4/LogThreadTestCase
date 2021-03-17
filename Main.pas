@@ -15,7 +15,7 @@ type
     procedure UpdateLogMessages(AMessages: TArray<String>);
     procedure WaitLogUpdates;
   private
-    FAddMessageEvent: TEvent;
+
     FCancellationEvent: TEvent;
     FLoggerI: ILogger;
     FThreadManager: TThreadManager;
@@ -43,12 +43,7 @@ constructor TMainForm.Create(AOwner: TComponent);
 begin
   inherited;
   try
-    // Автосбрасываемое событие
-    FAddMessageEvent := TEvent.Create(nil, False, False, '');
-
     FLoggerI := TAppLoger.Logger;
-    // Логгер будет устанавливать это событие после добавления сообщения
-    FLoggerI.AddMessageEvent := FAddMessageEvent;
 
     CreateWaitLogUpdatesThread;
 
@@ -126,12 +121,12 @@ begin
   while True do
   begin
     AWaitResult := TEvent.WaitForMultiple
-      ([FCancellationEvent, FAddMessageEvent], 1000, False, ASignaledObject);
+      ([FCancellationEvent, FLoggerI.AddMessageEvent], 1000, False, ASignaledObject);
 
     // Если дождались
     if AWaitResult <> wrTimeout then
     begin
-      if ASignaledObject = FAddMessageEvent then
+      if ASignaledObject = FLoggerI.AddMessageEvent then
       begin
         ALastMessages := FLoggerI.GetLastMessages;
         TThread.Synchronize(TThread.CurrentThread,

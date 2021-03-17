@@ -11,7 +11,6 @@ type
   strict private
     procedure Add(AMessage: string; AMessageStatus: TMessageStatus);
     function GetAddMessageEvent: TEvent;
-    procedure SetAddMessageEvent(const Value: TEvent);
     procedure TruncateLog;
     procedure WaitLogTruncateTime;
   private
@@ -61,6 +60,10 @@ begin
 
   TFile.WriteAllText(ALoggerSettingsI.FileName, '');
 
+  // Автосбрасываемое событие
+  // Логгер будет устанавливать это событие после добавления сообщения
+  FAddMessageEvent := TEvent.Create(nil, False, False, '');
+
   // Запускаем поток, который будет обрезать файл
   CreateTruncateLogThread;
 end;
@@ -77,6 +80,9 @@ begin
 
   if FMessageStatus <> nil then
     FreeAndNil(FMessageStatus);
+
+  if FAddMessageEvent <> nil then
+    FreeAndNil(FAddMessageEvent);
 
   inherited;
 end;
@@ -102,8 +108,7 @@ begin
     if FStringList.Count > 10 then
       FStringList.Delete(0);
 
-    if FAddMessageEvent <> nil then
-      FAddMessageEvent.SetEvent;
+    FAddMessageEvent.SetEvent;
   finally
     FCS.Leave;
   end;
@@ -157,11 +162,6 @@ begin
     else
       break;
   end;
-end;
-
-procedure TLogger.SetAddMessageEvent(const Value: TEvent);
-begin
-  FAddMessageEvent := Value;
 end;
 
 procedure TLogger.TerminateTruncateLogThread;

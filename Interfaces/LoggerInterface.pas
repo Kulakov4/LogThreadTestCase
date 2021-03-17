@@ -12,9 +12,7 @@ type
     procedure Add(AMessage: string; AMessageStatus: TMessageStatus);
     function GetAddMessageEvent: TEvent;
     function GetLastMessages: TArray<String>;
-    procedure SetAddMessageEvent(const Value: TEvent);
-    property AddMessageEvent: TEvent read GetAddMessageEvent write
-        SetAddMessageEvent;
+    property AddMessageEvent: TEvent read GetAddMessageEvent;
   end;
 
 implementation
